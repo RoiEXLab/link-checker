@@ -42,7 +42,7 @@ public class LinkChecker {
 			System.out.println();
 			if (!errorMessages.isEmpty()) {
 				System.out.println();
-				System.out.println("Oops we found the following errors:");
+				System.out.println("Errors:");
 			}
 			for (SharedMessage message : errorMessages) {
 				System.out.println();
@@ -50,7 +50,7 @@ public class LinkChecker {
 			}
 			if (!warningMessages.isEmpty()) {
 				System.out.println();
-				System.out.println("Oops we found the following warnings:");
+				System.out.println("Warnings:");
 			}
 			for (SharedMessage message : warningMessages) {
 				System.out.println();
