@@ -57,7 +57,9 @@ public class LinkProcessor {
 			LinkChecker.logCurrent("Processing " + path.toAbsolutePath());
 			Document doc = Jsoup.parse(path.toFile(), null);
 			extractAttributes(path, doc.getElementsByTag("img"), "src");
+			extractAttributes(path, doc.getElementsByTag("script"), "src");
 			extractAttributes(path, doc.getElementsByTag("a"), "href");
+			extractAttributes(path, doc.getElementsByTag("link"), "href");
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
