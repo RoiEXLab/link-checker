@@ -15,12 +15,12 @@ import java.util.Queue;
 import java.util.Set;
 
 import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.RedirectStrategy;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClients;
-import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -42,7 +42,20 @@ public class LinkProcessor {
 			new URL(server);
 			this.server = server;
 			this.base = directory.toPath();
-			try (CloseableHttpClient client = HttpClients.custom().setRetryHandler(new DefaultHttpRequestRetryHandler(1, false)).setRedirectStrategy(new LaxRedirectStrategy()).disableCookieManagement().build()) {
+			RedirectStrategy permanentRedirHandler = new RedirectListener((s, d) -> {
+				if (!LinkChecker.ignore301()) {
+					try {
+						URL url = new URL(s);
+						if (!checkedLinks.containsKey(url)) {
+							checkedLinks.put(url, new HashSet<>());
+						}
+						LinkChecker.warn(new SharedMessage("Link '" + s + "' was redirected permanently to '" + d + "' Consider updating this link", checkedLinks.get(url)));
+					} catch (MalformedURLException e) {
+						e.printStackTrace();
+					}
+				}
+			});
+			try (CloseableHttpClient client = HttpClients.custom().setRetryHandler(new DefaultHttpRequestRetryHandler(1, false)).setRedirectStrategy(permanentRedirHandler).disableCookieManagement().build()) {
 				Files.find(base, 999, (path, bfa) -> bfa.isRegularFile() && path.getFileName().toString().matches(".*\\.(html|htm)")).forEach(this::getLinks);
 				System.out.println();
 				processQueue(client);
@@ -71,7 +84,10 @@ public class LinkProcessor {
 				String link = e.attr(attr);
 				if (link.startsWith("#")) {
 					continue;
-				} else if (link.matches("https?://.*")) {
+				} else if (link.matches("(https?:)?//.*")) {
+					if (link.startsWith("//")) {
+						link = server.split("//")[0] + link;
+					}
 					if (link.startsWith(server)) {
 						localLinks.add(new URLSource(link, source));
 					} else {
@@ -128,8 +144,8 @@ public class LinkProcessor {
 					int status = response.getStatusLine().getStatusCode();
 					int statusType = Integer.parseInt(String.valueOf(Integer.toString(status).charAt(0)));
 					if (statusType != 2) {
-						if (statusType == 3 && !LinkChecker.is300Allowed()) {
-							LinkChecker.warn(new SharedMessage("Link '" + url + "' returned code " + status, checkedLinks.get(urlObject)));
+						if (statusType == 3) {
+							throw new IllegalStateException("This request should have been redirected!");
 						} else if (statusType == 5) {
 							if (LinkChecker.is500Allowed()) {
 								LinkChecker.warn(generateSharedStatusError(url, urlObject, status));
@@ -141,7 +157,7 @@ public class LinkProcessor {
 						}
 					}
 				} catch (Exception e) {
-					LinkChecker.fail(new SharedMessage("Error while trying to access " + url + e.getMessage(), checkedLinks.get(urlObject)));
+					LinkChecker.fail(new SharedMessage("Error while trying to access '" + url + "' " + e.getMessage(), checkedLinks.get(urlObject)));
 				}
 			} catch (Exception e) {
 				LinkChecker.fail(new SharedMessage(e.getMessage(), checkedLinks.get(urlObject)));
