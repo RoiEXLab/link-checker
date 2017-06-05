@@ -1,10 +1,13 @@
 package com.roiex.linkchecker;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Scanner;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.DefaultParser;
@@ -21,12 +24,14 @@ public class LinkChecker {
 	private static boolean ignoreOutgoing;
 	private static List<SharedMessage> errorMessages = new ArrayList<>();
 	private static List<SharedMessage> warningMessages = new ArrayList<>();
+	private static List<Pattern> regex = new ArrayList<>();
 
 	public static void main(String[] args) {
 		disableApacheLogging();
 		Options options = new Options();
 		options.addOption("s", "server", true, "Server to check example: http://localhost:80");
 		options.addOption("d", "dir", true, "Directory with html files to check");
+		options.addOption("if", "ignore-based-on-file", true, "(Optional) File which contains line-break-separated regular expressions. All errors/warnings matching those expressions will be ignored");
 		options.addOption("l", "local-checks-only", false, "(Optional) If set, outgoing links will be ignored");
 		options.addOption("i", "ignore-errors", false, "(Optional) If set, the exit code will always be 0");
 		options.addOption("f5", "fail-500", false, "(Optional) If set, the application fails on 5XX status codes");
@@ -40,6 +45,15 @@ public class LinkChecker {
 			if (!cmd.hasOption("s") || !cmd.hasOption("d")) {
 				new HelpFormatter().printHelp("LinkChecker", options);
 				System.exit(-1);
+			}
+			if (cmd.hasOption("if")) {
+				try (Scanner scanner = new Scanner(new File(cmd.getOptionValue("if")))) {
+					while (scanner.hasNextLine()) {
+						regex.add(Pattern.compile(scanner.nextLine()));
+					}
+				} catch (FileNotFoundException e) {
+					e.printStackTrace();
+				}
 			}
 			new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d')));
 			System.out.println();
@@ -72,6 +86,9 @@ public class LinkChecker {
 	}
 
 	public static void fail(SharedMessage message) {
+		if (regex.stream().anyMatch(p -> p.matcher(message.getMessage()).matches())) {
+			return;
+		}
 		if (!ignoreErrors) {
 			failed = true;
 		}
@@ -79,6 +96,9 @@ public class LinkChecker {
 	}
 
 	public static void warn(SharedMessage message) {
+		if (regex.stream().anyMatch(p -> p.matcher(message.getMessage()).matches())) {
+			return;
+		}
 		warningMessages.add(message);
 	}
 
