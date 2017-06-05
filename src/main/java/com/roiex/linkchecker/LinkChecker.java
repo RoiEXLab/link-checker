@@ -59,6 +59,10 @@ public class LinkChecker {
 				System.out.println();
 				System.out.println(message);
 			}
+			if (warningMessages.isEmpty() && errorMessages.isEmpty()) {
+				System.out.println();
+				System.out.println("Congratulations! No errors or warnings!");
+			}
 		} catch (ParseException e) {
 			e.printStackTrace();
 		}
