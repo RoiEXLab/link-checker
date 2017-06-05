@@ -18,6 +18,7 @@ public class LinkChecker {
 	private static boolean failed;
 	private static boolean is500allowed;
 	private static boolean is300allowed;
+	private static boolean ignoreOutgoing;
 	private static List<SharedMessage> errorMessages = new ArrayList<>();
 	private static List<SharedMessage> warningMessages = new ArrayList<>();
 
@@ -25,7 +26,8 @@ public class LinkChecker {
 		disableApacheLogging();
 		Options options = new Options();
 		options.addOption("s", "server", true, "Server to check example: http://localhost:80");
-		options.addOption("d", "dir", true, "(Optional) Directory with html files to check");
+		options.addOption("d", "dir", true, "Directory with html files to check");
+		options.addOption("l", "local-checks-only", false, "(Optional) If set, outgoing links will be ignored");
 		options.addOption("i", "ignore-errors", false, "(Optional) If set, the exit code will always be 0");
 		options.addOption("f5", "fail-500", false, "(Optional) If set, the applications fails on 5XX exit codes");
 		options.addOption("f3", "fail-300", false, "(Optional) If set, the applications fails on 3XX exit codes");
@@ -34,6 +36,7 @@ public class LinkChecker {
 			ignoreErrors = cmd.hasOption('i');
 			is500allowed = !cmd.hasOption("f5");
 			is300allowed = !cmd.hasOption("f3");
+			ignoreOutgoing = cmd.hasOption("l");
 			if (!cmd.hasOption("s") || !cmd.hasOption("d")) {
 				new HelpFormatter().printHelp("LinkChecker", options);
 				System.exit(-1);
@@ -81,6 +84,9 @@ public class LinkChecker {
 
 	public static boolean is300Allowed() {
 		return is300allowed;
+	}
+	public static boolean ignoreOutgoing() {
+		return ignoreOutgoing;
 	}
 
 	private static int oldLength = 0;

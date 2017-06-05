@@ -103,7 +103,9 @@ public class LinkProcessor {
 	private void processQueue(CloseableHttpClient client) {
 		try {
 			processQueue(client, localLinks);
-			processQueue(client, outgoingLinks);
+			if (!LinkChecker.ignoreOutgoing()) {
+				processQueue(client, outgoingLinks);
+			}
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
