@@ -55,7 +55,7 @@ public class LinkChecker {
 					e.printStackTrace();
 				}
 			}
-			new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d')));
+			new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d'))).process();
 			System.out.println();
 			if (!errorMessages.isEmpty()) {
 				System.out.println();
