@@ -81,7 +81,6 @@ public class LinkProcessor {
 				result.addLast(newRelay);
 				addNextToList(newRelay, result, relays);
 			}
-			System.out.println(Arrays.toString(result.toArray()));
 			for (RedirectionRelay redirect : result) {
 				Set<Path> affectedFiles = checkedLinks.getOrDefault(new URL(redirect.getSourceURL()).toURI().normalize().toURL(), new HashSet<>());
 				URL destURL = new URL(redirect.getDestinationURL()).toURI().normalize().toURL();
