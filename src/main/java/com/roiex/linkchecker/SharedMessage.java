@@ -10,21 +10,12 @@ public class SharedMessage {
 	private final String message;
 	private final Set<Path> affectedFiles;
 
-	public SharedMessage(String message, Path... paths) {
-		this(message, Arrays.asList(paths));
-	}
-	public SharedMessage(String message, List<Path> paths) {
-		this(message, new HashSet<>(paths));
-	}
 	public SharedMessage(String message, Set<Path> paths) {
 		this.message = message;
 		affectedFiles = paths;
 	}
 	public String getMessage() {
 		return message;
-	}
-	public Set<Path> getAffectedFiles() {
-		return affectedFiles;
 	}
 
 	@Override

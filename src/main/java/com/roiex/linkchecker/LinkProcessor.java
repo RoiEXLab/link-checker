@@ -181,7 +181,7 @@ public class LinkProcessor {
 			e.printStackTrace();
 		}
 	}
-	private void processQueue(CloseableHttpClient client, Queue<URLSource> queue) throws ClientProtocolException, IOException, URISyntaxException {
+	private void processQueue(CloseableHttpClient client, Queue<URLSource> queue) throws IOException, URISyntaxException {
 		System.out.println();
 		while (!queue.isEmpty()) {
 			URLSource urlSource = queue.poll();
