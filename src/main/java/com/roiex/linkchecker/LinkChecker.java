@@ -3,6 +3,7 @@ package com.roiex.linkchecker;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Scanner;
 import java.util.logging.Level;
@@ -17,13 +18,9 @@ import org.apache.commons.cli.ParseException;
 
 public class LinkChecker {
 
-	private static boolean ignoreErrors;
-	private static boolean failed;
 	private static boolean is500allowed;
 	private static boolean ignore301;
 	private static boolean ignoreOutgoing;
-	private static List<SharedMessage> errorMessages = new ArrayList<>();
-	private static List<SharedMessage> warningMessages = new ArrayList<>();
 	private static List<Pattern> regex = new ArrayList<>();
 
 	public static void main(String[] args) {
@@ -38,7 +35,7 @@ public class LinkChecker {
 		options.addOption("i301", "ignore-301", false, "(Optional) If set, the application ignores 301 status codes");
 		try {
 			CommandLine cmd = new DefaultParser().parse(options, args);
-			ignoreErrors = cmd.hasOption('i');
+			boolean ignoreErrors = cmd.hasOption('i');
 			is500allowed = !cmd.hasOption("f5");
 			ignore301 = cmd.hasOption("i301");
 			ignoreOutgoing = cmd.hasOption("l");
@@ -55,75 +52,47 @@ public class LinkChecker {
 					e.printStackTrace();
 				}
 			}
-			new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d'))).process();
+			var messages = new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d'))).process();
 			System.out.println();
-			if (!errorMessages.isEmpty()) {
-				System.out.println();
-				System.out.println("Errors:");
-			}
-			for (SharedMessage message : errorMessages) {
-				System.out.println();
-				System.out.println(message);
-			}
-			if (!warningMessages.isEmpty()) {
-				System.out.println();
-				System.out.println("Warnings:");
-			}
-			for (SharedMessage message : warningMessages) {
-				System.out.println();
-				System.out.println(message);
-			}
-			if (warningMessages.isEmpty() && errorMessages.isEmpty()) {
-				System.out.println();
+			messages.stream()
+					.sorted(Comparator
+							.comparing(Message::isSevere)
+							.reversed()
+							.thenComparing(Message::getPath)
+							.thenComparing(Message::getMessage))
+					.map(Object::toString)
+					.filter(message -> regex.stream().noneMatch(p -> p.matcher(message).matches()))
+					.forEach(System.out::println);
+			if (messages.isEmpty()) {
 				System.out.println("Congratulations! No errors or warnings!");
+			}
+			if (!ignoreErrors && messages.stream().anyMatch(Message::isSevere)) {
+				System.exit(1);
 			}
 		} catch (ParseException e) {
 			e.printStackTrace();
 		}
-		if (failed) {
-			System.exit(1);
-		}
 	}
 
-	public static void fail(SharedMessage message) {
-		if (regex.stream().anyMatch(p -> p.matcher(message.getMessage()).matches())) {
-			return;
-		}
-		if (!ignoreErrors) {
-			failed = true;
-		}
-		errorMessages.add(message);
-	}
-
-	public static void warn(SharedMessage message) {
-		if (regex.stream().anyMatch(p -> p.matcher(message.getMessage()).matches())) {
-			return;
-		}
-		warningMessages.add(message);
-	}
-
-	public static boolean is500Allowed() {
+	static boolean is500Allowed() {
 		return is500allowed;
 	}
 
-	public static boolean ignore301() {
+	static boolean ignore301() {
 		return ignore301;
 	}
-	public static boolean ignoreOutgoing() {
+	static boolean ignoreOutgoing() {
 		return ignoreOutgoing;
 	}
 
 	private static int oldLength = 0;
-	public static void logCurrent(String message) {
+	static void logCurrent(String message) {
 		int newLength = message.length();
-		StringBuilder builder = new StringBuilder();
-		builder.append(message);
-		for (int i = newLength; i < oldLength; i++) {
-			builder.append(' ');
-		}
-		builder.append('\r');
+		String newMessage = message
+				+ " ".repeat(Math.max(0, oldLength - newLength))
+				+ '\r';
 		oldLength = newLength;
-		System.out.print(builder.toString());
+		System.out.print(newMessage);
 	}
 
 	private static void disableApacheLogging() {
