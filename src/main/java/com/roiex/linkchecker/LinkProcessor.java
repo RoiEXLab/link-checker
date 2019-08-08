@@ -1,6 +1,5 @@
 package com.roiex.linkchecker;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
@@ -32,14 +31,14 @@ class LinkProcessor {
   private final Path base;
   private final Map<String, Optional<Message>> cachedRequests = Collections.synchronizedMap(new HashMap<>());
 
-  LinkProcessor(String server, File directory) {
+  LinkProcessor(String server, Path directory) {
     try {
       if (!server.endsWith("/")) {
         server += "/";
       }
       new URL(server);
       this.server = server;
-      this.base = directory.toPath();
+      this.base = directory;
     } catch (IOException e) {
       throw new IllegalArgumentException("Invalid URL: " + server, e);
     }
