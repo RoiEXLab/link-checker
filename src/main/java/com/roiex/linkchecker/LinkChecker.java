@@ -53,7 +53,6 @@ public class LinkChecker {
 				}
 			}
 			var messages = new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d'))).process();
-			System.out.println();
 			messages.stream()
 					.sorted(Comparator
 							.comparing(Message::isSevere)
