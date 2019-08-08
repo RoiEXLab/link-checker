@@ -1,226 +1,173 @@
 package com.roiex.linkchecker;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
-import java.util.Queue;
-import java.util.Set;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpHead;
 import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.DefaultHttpRequestRetryHandler;
 import org.apache.http.impl.client.HttpClients;
+import org.apache.http.impl.client.LaxRedirectStrategy;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
-public class LinkProcessor {
+class LinkProcessor {
+  private final String server;
+  private final Path base;
+  private final Map<String, Optional<Message>> cachedRequests = Collections.synchronizedMap(new HashMap<>());
 
-	private Queue<URLSource> outgoingLinks = new LinkedList<>();
-	private Queue<URLSource> localLinks = new LinkedList<>();
-	private String server;
-	private Map<URL, Set<Path>> checkedLinks = new HashMap<>();
-	private Path base;
+  LinkProcessor(String server, Path directory) {
+    try {
+      if (!server.endsWith("/")) {
+        server += "/";
+      }
+      new URL(server);
+      this.server = server;
+      this.base = directory;
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Invalid URL: " + server, e);
+    }
+  }
 
-	public LinkProcessor(String server, File directory) {
-		try {
-			if (!server.endsWith("/")) {
-				server += "/";
-			}
-			new URL(server);
-			this.server = server;
-			this.base = directory.toPath();
-		} catch (IOException e) {
-			System.err.println("Invalid URL: " + server);
-			e.printStackTrace();
-		}
-	}
+  List<Message> process() {
+    try {
+      return Files.find(base, 999, (path, bfa) -> bfa.isRegularFile() && path
+          .getFileName().toString().matches(".*\\.(html|htm)"))
+          .parallel()
+          .map(this::processFile)
+          .flatMap(Collection::stream)
+          .collect(Collectors.toList());
+    } catch (IOException e) {
+      e.printStackTrace();
+    }
+    return Collections.emptyList();
+  }
 
-	public void process() {
-		RedirectListener permanentRedirHandler = new RedirectListener((r) -> {
-			if (!LinkChecker.ignore301()) {
-				try {
-					URL url = new URL(r.getSourceURL()).toURI().normalize().toURL();
-					if (!checkedLinks.containsKey(url)) {
-						checkedLinks.put(url, new HashSet<>());
-					}
-					LinkChecker.warn(new SharedMessage("Link '" + url.toString() + "' was redirected permanently to '" + r.getDestinationURL() + "' Consider updating this link", checkedLinks.get(url)));
-				} catch (MalformedURLException | URISyntaxException e) {
-					e.printStackTrace();
-				}
-			}
-		});
-		try (CloseableHttpClient client = HttpClients.custom().setRetryHandler(new DefaultHttpRequestRetryHandler(1, false)).setRedirectStrategy(permanentRedirHandler).disableCookieManagement().build()) {
-			Files.find(base, 999, (path, bfa) -> bfa.isRegularFile() && path.getFileName().toString().matches(".*\\.(html|htm)")).forEach(this::getLinks);
-			System.out.println();
-			processQueue(client);
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-		addRelayFiles(permanentRedirHandler.getRedirects());
-	}
+  private List<Message> processFile(Path path) {
+    try (CloseableHttpClient client = HttpClients.custom()
+        .setRetryHandler(new DefaultHttpRequestRetryHandler(1, false))
+        .setRedirectStrategy(LinkChecker.ignore301() ? new LaxRedirectStrategy() : new RedirectLogger())
+        .disableCookieManagement()
+        .build()) {
+      return getLinks(path)
+          .map(link -> getFullLink(path, link))
+          .flatMap(Optional::stream)
+          .filter(link -> !LinkChecker.ignoreOutgoing() || !isOutgoing(link))
+          .map(link -> processLinkWithCache(client, link, path))
+          .flatMap(Optional::stream)
+          .collect(Collectors.toList());
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+  }
 
-	void addRelayFiles(Set<RedirectionRelay> redirects) {
-		try {
-			LinkedList<RedirectionRelay> result = new LinkedList<>();
-			LinkedList<RedirectionRelay> relays = new LinkedList<>(redirects);
-			while (!relays.isEmpty()) {
-				RedirectionRelay newRelay = relays.poll();
-				result.addLast(newRelay);
-				addNextToList(newRelay, result, relays);
-			}
-			for (RedirectionRelay redirect : result) {
-				Set<Path> affectedFiles = checkedLinks.getOrDefault(new URL(redirect.getSourceURL()).toURI().normalize().toURL(), new HashSet<>());
-				URL destURL = new URL(redirect.getDestinationURL()).toURI().normalize().toURL();
-				if (!checkedLinks.containsKey(destURL)) {
-					checkedLinks.put(destURL, new HashSet<>());
-				}
-				checkedLinks.get(destURL).addAll(affectedFiles);
-			}
-		} catch (MalformedURLException | URISyntaxException e) {
-			e.printStackTrace();
-		}
-	}
 
-	void addNextToList(RedirectionRelay start, LinkedList<RedirectionRelay> source, LinkedList<RedirectionRelay> pool) {
-		RedirectionRelay prev = null;
-		RedirectionRelay next = null;
-		for (RedirectionRelay current : pool) {
-			int compareValue = start.compareTo(current);
-			if (compareValue < 0) {
-				next = current;
-			} else if (compareValue > 0) {
-				prev = current;
-			}
-			if (prev != null && next != null) {
-				break;
-			}
-		}
-		if (prev != null) {
-			pool.remove(prev);
-			source.addFirst(prev);
-			addNextToList(prev, source, pool);
-		}
-		if (next != null) {
-			pool.remove(next);
-			source.addLast(next);
-			addNextToList(next, source, pool);
-		}
-	}
+  private Stream<String> getLinks(Path path) {
+    try {
+      LinkChecker.logCurrent("Processing " + path.toAbsolutePath().normalize());
+      Document doc = Jsoup.parse(path.toFile(), null);
+      return Stream.of(
+          extractLinks(doc.getElementsByTag("img"), "src"),
+          extractLinks(doc.getElementsByTag("script"), "src"),
+          extractLinks(doc.getElementsByTag("a"), "href"),
+          extractLinks(doc.getElementsByTag("link"), "href")
+      ).flatMap(Function.identity());
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+  }
 
-	private void getLinks(Path path) {
-		try {
-			LinkChecker.logCurrent("Processing " + path.toAbsolutePath().normalize());
-			Document doc = Jsoup.parse(path.toFile(), null);
-			extractAttributes(path, doc.getElementsByTag("img"), "src");
-			extractAttributes(path, doc.getElementsByTag("script"), "src");
-			extractAttributes(path, doc.getElementsByTag("a"), "href");
-			extractAttributes(path, doc.getElementsByTag("link"), "href");
-		} catch (IOException e) {
-			e.printStackTrace();
-		}
-	}
+  private Stream<String> extractLinks(Elements elements, String attr) {
+    return elements.stream().filter(e -> e.hasAttr(attr)).map(e -> e.attr(attr));
+  }
 
-	private void extractAttributes(Path source, Elements elements, String attr) {
-		for (Element e : elements) {
-			if (e.hasAttr(attr)) {
-				String link = e.attr(attr);
-				if (link.startsWith("#")) {
-					continue;
-				} else if (link.matches("(https?:)?//.*")) {
-					if (link.startsWith("//")) {
-						link = server.split("//")[0] + link;
-					}
-					if (link.startsWith(server)) {
-						localLinks.add(new URLSource(link, source));
-					} else {
-						outgoingLinks.add(new URLSource(link, source));
-					}
-				} else if (!link.matches("^[a-zA-Z]+:.*")) {
-					if (link.startsWith("/")) {
-						localLinks.add(new URLSource(server + link, source));
-					} else {
-						localLinks.add(new URLSource(getAbsoluteURL(source, link), source));
-					}
-				}
-			}
-		}
-	}
+  private Optional<String> getFullLink(Path source, String link) {
+    if (!link.startsWith("#") && link.matches("(https?:)?//.*")) {
+      if (link.startsWith("//")) {
+        return Optional.of(server.split("//")[0] + link);
+      }
+      return Optional.of(link);
+    } else if (!link.matches("^[a-zA-Z]+:.*")) {
+      if (link.startsWith("/")) {
+        return Optional.of(server + link);
+      } else {
+        return Optional.of(getAbsoluteURL(source, link));
+      }
+    }
+    return Optional.empty();
+  }
 
-	private String getAbsoluteURL(Path source, String link) {
-		if (!source.toFile().isDirectory()) {
-			source = source.toAbsolutePath().getParent();
-		}
-		Path relativePath = base.toAbsolutePath().relativize(source);
-		try {
-			return new URL(server + relativePath.toString().replaceAll("\\\\", "/") + "/" + link).toURI().normalize().toURL().toString();
-		} catch (MalformedURLException | URISyntaxException e) {
-			throw new IllegalArgumentException(e);
-		}
-	}
+  private boolean isOutgoing(String link) {
+    if (!link.startsWith("#") && link.matches("(https?:)?//.*")) {
+      if (link.startsWith("//")) {
+        link = server.split("//")[0] + link;
+      }
+      return !link.startsWith(server);
+    }
+    return false;
+  }
 
-	private void processQueue(CloseableHttpClient client) {
-		try {
-			processQueue(client, localLinks);
-			if (!LinkChecker.ignoreOutgoing()) {
-				processQueue(client, outgoingLinks);
-			}
-		} catch (IOException | URISyntaxException e) {
-			e.printStackTrace();
-		}
-	}
-	private void processQueue(CloseableHttpClient client, Queue<URLSource> queue) throws IOException, URISyntaxException {
-		System.out.println();
-		while (!queue.isEmpty()) {
-			URLSource urlSource = queue.poll();
-			String url = urlSource.getURL();
-			URL urlObject = new URL(url).toURI().normalize().toURL();
-			if (checkedLinks.containsKey(urlObject)) {
-				checkedLinks.get(urlObject).add(urlSource.getPath());
-				continue;
-			}
-			checkedLinks.put(urlObject, new HashSet<>(Arrays.asList(urlSource.getPath().toAbsolutePath().normalize())));
-			try {
-				HttpHead head = new HttpHead(url);
-				LinkChecker.logCurrent("Checking " + urlObject.toString());
-				try (CloseableHttpResponse response = client.execute(head)) {
-					int status = response.getStatusLine().getStatusCode();
-					int statusType = Integer.parseInt(String.valueOf(Integer.toString(status).charAt(0)));
-					if (statusType != 2) {
-						if (statusType == 3) {
-							throw new IllegalStateException("This request should have been redirected!");
-						} else if (statusType == 5) {
-							if (LinkChecker.is500Allowed()) {
-								LinkChecker.warn(generateSharedStatusError(url, urlObject, status));
-							} else {
-								LinkChecker.fail(generateSharedStatusError(url, urlObject, status));
-							}
-						} else {
-							LinkChecker.fail(generateSharedStatusError(url, urlObject, status));
-						}
-					}
-				} catch (Exception e) {
-					LinkChecker.fail(new SharedMessage("Error while trying to access '" + url + "' " + e.getMessage(), checkedLinks.get(urlObject)));
-				}
-			} catch (Exception e) {
-				LinkChecker.fail(new SharedMessage(e.getMessage(), checkedLinks.get(urlObject)));
-			}
-		}
-	}
+  private String getAbsoluteURL(Path source, String link) {
+    if (!source.toFile().isDirectory()) {
+      source = source.toAbsolutePath().getParent();
+    }
+    Path relativePath = base.toAbsolutePath().relativize(source);
+    try {
+      return new URL(server + relativePath.toString().replaceAll("\\\\", "/") + "/" + link).toURI().normalize().toURL().toString();
+    } catch (MalformedURLException | URISyntaxException e) {
+      throw new IllegalArgumentException(e);
+    }
+  }
 
-	private SharedMessage generateSharedStatusError(String url, URL urlObject, int status) {
-		return new SharedMessage("Link '" + url + "' returned code " + status, checkedLinks.get(urlObject));
-	}
+  private Optional<Message> processLinkWithCache(CloseableHttpClient client, String url, Path path) {
+    if (cachedRequests.containsKey(url)) {
+      return cachedRequests.get(url).map(message -> new Message(message.isSevere(), message.getMessage(), path));
+    }
+    var result = processLink(client, url, path);
+    cachedRequests.put(url, result.map(message -> new Message(message.isSevere(), message.getMessage(), null)));
+    return result;
+  }
+
+  private Optional<Message> processLink(CloseableHttpClient client, String url, Path path) {
+    HttpHead head = new HttpHead(url);
+    LinkChecker.logCurrent("Checking " + url);
+    var clientContext = new RedirectLogger.AdvancedHttpClientContext();
+
+    try (CloseableHttpResponse response = client.execute(head, clientContext)) {
+      int status = response.getStatusLine().getStatusCode();
+      if (status / 100 != 2) {
+        return Optional.of(new Message(isSevere(status), "Link '" + url + "' returned code " + status, path));
+      }
+      if (!clientContext.getPermanentHops().isEmpty()) {
+        var entry = clientContext.getPermanentHops().entrySet().stream().findFirst().orElseThrow();
+        return Optional.of(new Message(false, "Link '" + entry.getKey()
+            + "' was redirected permanently to '" + entry.getValue() + "'. Consider updating this link", path));
+      }
+    } catch (IOException e) {
+      return Optional.of(new Message(true, e.getMessage(), path));
+    }
+    return Optional.empty();
+  }
+
+  private boolean isSevere(int status) {
+    if (status / 100 == 3) {
+      throw new IllegalStateException("This request should have been redirected!");
+    }
+    return status / 100 != 5 || !LinkChecker.is500Allowed();
+  }
 }
