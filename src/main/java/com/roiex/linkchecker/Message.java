@@ -7,21 +7,21 @@ public class Message {
   private final String message;
   private final Path path;
 
-  public Message(boolean severe, String message, Path path) {
+  Message(boolean severe, String message, Path path) {
     this.severe = severe;
     this.message = message;
     this.path = path;
   }
 
-  public boolean isSevere() {
+  boolean isSevere() {
     return severe;
   }
 
-  public String getMessage() {
+  String getMessage() {
     return message;
   }
 
-  public Path getPath() {
+  Path getPath() {
     return path;
   }
 

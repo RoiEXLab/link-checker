@@ -9,7 +9,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -25,11 +27,12 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 
-public class LinkProcessor {
-  private String server;
-  private Path base;
+class LinkProcessor {
+  private final String server;
+  private final Path base;
+  private final Map<String, Optional<Message>> cachedRequests = Collections.synchronizedMap(new HashMap<>());
 
-  public LinkProcessor(String server, File directory) {
+  LinkProcessor(String server, File directory) {
     try {
       if (!server.endsWith("/")) {
         server += "/";
@@ -38,8 +41,7 @@ public class LinkProcessor {
       this.server = server;
       this.base = directory.toPath();
     } catch (IOException e) {
-      System.err.println("Invalid URL: " + server);
-      e.printStackTrace();
+      throw new IllegalArgumentException("Invalid URL: " + server, e);
     }
   }
 
@@ -67,7 +69,7 @@ public class LinkProcessor {
           .map(link -> getFullLink(path, link))
           .flatMap(Optional::stream)
           .filter(link -> !LinkChecker.ignoreOutgoing() || !isOutgoing(link))
-          .map(link -> processLink(client, link, path))
+          .map(link -> processLinkWithCache(client, link, path))
           .flatMap(Optional::stream)
           .collect(Collectors.toList());
     } catch (IOException e) {
@@ -131,6 +133,15 @@ public class LinkProcessor {
     } catch (MalformedURLException | URISyntaxException e) {
       throw new IllegalArgumentException(e);
     }
+  }
+
+  private Optional<Message> processLinkWithCache(CloseableHttpClient client, String url, Path path) {
+    if (cachedRequests.containsKey(url)) {
+      return cachedRequests.get(url).map(message -> new Message(message.isSevere(), message.getMessage(), path));
+    }
+    var result = processLink(client, url, path);
+    cachedRequests.put(url, result.map(message -> new Message(message.isSevere(), message.getMessage(), null)));
+    return result;
   }
 
   private Optional<Message> processLink(CloseableHttpClient client, String url, Path path) {
