@@ -51,6 +51,7 @@ public class LinkChecker {
     }
     var messages = new LinkProcessor(cmd.getOptionValue('s'), Paths.get(cmd.getOptionValue('d'))).process();
     System.out.println();
+    System.out.println();
     var filteredMessages = messages.stream()
         .sorted(Comparator
             .comparing(Message::isSevere)
