@@ -53,6 +53,7 @@ public class LinkChecker {
 				}
 			}
 			var messages = new LinkProcessor(cmd.getOptionValue('s'), new File(cmd.getOptionValue('d'))).process();
+			System.out.println();
 			messages.stream()
 					.sorted(Comparator
 							.comparing(Message::isSevere)
@@ -61,6 +62,7 @@ public class LinkChecker {
 							.thenComparing(Message::getMessage))
 					.map(Object::toString)
 					.filter(message -> regex.stream().noneMatch(p -> p.matcher(message).matches()))
+					.map(str -> str + '\n')
 					.forEach(System.out::println);
 			if (messages.isEmpty()) {
 				System.out.println("Congratulations! No errors or warnings!");
