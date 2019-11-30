@@ -104,7 +104,7 @@ class LinkProcessor {
       return Optional.of(link);
     } else if (!link.matches("^[a-zA-Z]+:.*")) {
       if (link.startsWith("/")) {
-        return Optional.of(server + link);
+        return Optional.of(server.substring(0, server.length() - 1) + link);
       } else {
         return Optional.of(getAbsoluteURL(source, link));
       }
